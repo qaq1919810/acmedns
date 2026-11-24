@@ -1,0 +1,60 @@
+name: build-caddy-acmedns
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: "1.26.x"
+          cache: false
+
+      - name: Install xcaddy
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7
+
+      - name: Build Caddy with acmedns
+        env:
+          GOTOOLCHAIN: local
+          CGO_ENABLED: "0"
+        run: |
+          "$(go env GOPATH)/bin/xcaddy" build v2.11.9 \
+            --with github.com/caddy-dns/acmedns@v0.7.0
+
+      - name: Verify and record module metadata
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          ./caddy version | tee caddy.version.txt
+          ./caddy list-modules | grep -x 'dns.providers.acmedns'
+          go version -m ./caddy | tee caddy.modules.txt
+          sha256sum caddy | tee caddy.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: caddy-acmedns-linux-amd64
+          path: |
+            caddy
+            caddy.version.txt
+            caddy.modules.txt
+            caddy.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: caddy
